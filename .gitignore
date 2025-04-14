@@ -1,0 +1,23 @@
+# Maven build directory
+target/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# API keys
+src/main/resources/api-keys.properties
+
+# Log files
+*.log
+debug_log.txt
+
+# Backup files
+*.bak
+
+# Compiled class files
+*.class 
