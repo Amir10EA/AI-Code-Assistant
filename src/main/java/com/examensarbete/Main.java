@@ -5,12 +5,18 @@ import picocli.CommandLine;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
 @CommandLine.Command(name = "assistant", version = "assistant 1.0", mixinStandardHelpOptions = true)
 public class Main implements Callable<Integer> {
 
-    @CommandLine.Option(names = {"-m", "--model"}, description = "AI model to use (OpenAI, Claude, DeepSeek)", required = true)
+    @CommandLine.Option(
+    names = {"-m", "--model"}, 
+    description = "AI model to use (OpenAI, Claude, DeepSeek)", 
+    required = false // Changed from required=true
+)
     private String model;
 
     @CommandLine.Option(names = {"-f", "--file"}, description = "Path to the Java file to analyze", required = true)
@@ -22,7 +28,6 @@ public class Main implements Callable<Integer> {
     private final FileReader fileReader = new FileReader();
     private final PromptBuilder promptBuilder = new PromptBuilder();
     private final CodePatcher codePatcher = new CodePatcher();
-    // private final TestRunner testRunner = new TestRunner(); // Ingen instans behövs nu
     private final ResultLogger resultLogger = new ResultLogger();
 
     public static void main(String[] args) {
@@ -30,8 +35,30 @@ public class Main implements Callable<Integer> {
         System.exit(exitCode);
     }
 
+    private String getProjectRoot() throws Exception {
+        Path filePath = file.toPath().toAbsolutePath();
+        Path currentDir = filePath.getParent();
+        
+        while (currentDir != null) {
+            if (Files.exists(currentDir.resolve("pom.xml")) || 
+                Files.exists(currentDir.resolve("build.gradle"))) {
+                return currentDir.toString();
+            }
+            currentDir = currentDir.getParent();
+        }
+        throw new RuntimeException("Project root (Maven/Gradle) not found for file: " + file);
+    }
+
     @Override
-    public Integer call() throws Exception {
+public Integer call() throws Exception {
+    // Add validation for commands that need model
+    if (command.equalsIgnoreCase("hitta-buggar") || 
+        command.equalsIgnoreCase("fixa-kod")) {
+        if (model == null) {
+            System.out.println("Error: Model required for this command");
+            return 1;
+        }
+    }
         String code = fileReader.readFile(file.getPath());
 
         switch (command.toLowerCase()) {
@@ -39,7 +66,7 @@ public class Main implements Callable<Integer> {
                 findBugs(code);
                 break;
             case "kor-test":
-                System.out.println("Testkörning har inaktiverats.");
+                runTests();
                 break;
             case "fixa-kod":
                 fixCode(code);
@@ -70,30 +97,62 @@ public class Main implements Callable<Integer> {
             } else {
                 System.out.println("Ändringen har inte applicerats.");
             }
-
         } else {
             System.out.println("Ingen bugg hittades eller kunde inte extrahera bugginformation.");
         }
     }
 
-    private void runTests() {
-        // Testkörning är inaktiverad
-        System.out.println("Testkörning har inaktiverats.");
+    private void runTests() throws Exception {
+        String projectPath = getProjectRoot();
+        try {
+            boolean testsPassed = TestRunner.runTests(projectPath);
+            System.out.println("Testresultat: " + (testsPassed ? "ALLT GRÖNT ✅" : "MISSLYCKADES ❌"));
+        } catch (RuntimeException e) {
+            System.err.println("[ERROR] Test execution failed: " + e.getMessage());
+            System.out.println("Testresultat: MISSLYCKADES ❌");
+        }
     }
 
     private void fixCode(String code) throws Exception {
-        // runTests(); // Anrop till testkörning borttaget
-
+        String projectPath = getProjectRoot();
+        
+        // Run initial tests
+        System.out.println("\n=== KÖR TESTER INNAN KORRIGERING ===");
+        boolean initialTestsPassed = TestRunner.runTests(projectPath);
+        
+        // Find and apply fix
         String bugFindingPrompt = promptBuilder.buildBugFindingPrompt(code);
         String bugFindingResponse = AIClient.sendRequest(model, bugFindingPrompt);
         AIClient.AIResponse bugFixResponse = AIClient.parseResponse(bugFindingResponse);
 
+        boolean fixApplied = false;
         if (bugFixResponse != null) {
-            CodePatcher.applyPatch(file.getPath(), bugFixResponse.getCorrectedCode(), bugFixResponse.getBugPosition(), true);
-            System.out.println("Korrigerad kod har applicerats på: " + file.getAbsolutePath());
-            // runTests(); // Anrop till testkörning borttaget
+            CodePatcher.applyPatch(file.getPath(), 
+                bugFixResponse.getCorrectedCode(), 
+                bugFixResponse.getBugPosition(), 
+                true
+            );
+            fixApplied = true;
+            
+            // Run post-fix tests
+            System.out.println("\n=== KÖR TESTER EFTER KORRIGERING ===");
+            boolean finalTestsPassed = TestRunner.runTests(projectPath);
+            
+            // Log results
+            resultLogger.logResult(
+                "debug.log",
+                bugFixResponse.getBugPosition(),
+                bugFixResponse.getCorrectedCode(),
+                fixApplied,
+                initialTestsPassed,
+                finalTestsPassed
+            );
+            
+            System.out.println("\nSAMMANFATTNING:");
+            System.out.println("Initiala tester: " + (initialTestsPassed ? "Lyckades" : "Misslyckades"));
+            System.out.println("Tester efter fix: " + (finalTestsPassed ? "Lyckades" : "Misslyckades"));
         } else {
-            System.out.println("Ingen bugg hittades, så ingen korrigering har applicerats.");
+            System.out.println("Ingen bugg hittades - ingen åtgärd vidtogs.");
         }
     }
 }

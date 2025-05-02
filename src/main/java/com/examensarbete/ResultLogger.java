@@ -6,23 +6,11 @@ import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-/**
- * Utility class for logging debugging results.
- */
 public class ResultLogger {
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     
-    /**
-     * Logs the debugging results to a file.
-     * 
-     * @param logFilePath Path to the log file
-     * @param bugPosition The position of the bug
-     * @param correctedCode The corrected code snippet
-     * @param applied Whether the fix was applied
-     * @param testsPassed Whether the tests passed after applying the fix
-     * @throws Exception If there's an error writing to the log file
-     */
-    public static void logResult(String logFilePath, String bugPosition, String correctedCode, boolean applied, boolean testsPassed) throws Exception {
+    public static void logResult(String logFilePath, String bugPosition, String correctedCode, 
+    boolean applied, boolean initialTestsPassed, boolean finalTestsPassed) throws Exception {
         StringBuilder log = new StringBuilder();
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMATTER);
         
@@ -37,7 +25,8 @@ public class ResultLogger {
         log.append("Fix Applied: ").append(applied ? "YES" : "NO").append("\n");
         
         if (applied) {
-            log.append("Tests Passed: ").append(testsPassed ? "YES" : "NO").append("\n");
+            log.append("Initial Tests: ").append(initialTestsPassed ? "PASSED" : "FAILED").append("\n");
+            log.append("Post-Fix Tests: ").append(finalTestsPassed ? "PASSED" : "FAILED").append("\n");
         }
         
         log.append("\n--------------------------------------------------\n\n");
@@ -47,7 +36,7 @@ public class ResultLogger {
         // Create parent directories if they don't exist
         Files.createDirectories(path.getParent() != null ? path.getParent() : Path.of("."));
         
-        // Write to log file, creating it if it doesn't exist
+        // Write to log file
         Files.writeString(
             path, 
             log.toString(), 
@@ -57,4 +46,4 @@ public class ResultLogger {
         
         System.out.println("Results logged to: " + logFilePath);
     }
-} 
+}

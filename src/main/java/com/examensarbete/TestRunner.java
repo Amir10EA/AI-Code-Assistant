@@ -2,123 +2,169 @@ package com.examensarbete;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
-/**
- * Utility class for running JUnit tests.
- */
 public class TestRunner {
+    private static int totalTests = 0;
+    private static int failedTests = 0;
+    private static int errorTests = 0;
+    private static int skippedTests = 0;
     
-    /**
-     * Runs JUnit tests using Maven or Gradle for the project at the specified path.
-     * 
-     * @param projectPath Path to the root of the project
-     * @return true if tests passed, false otherwise
-     * @throws Exception If there's an error running the tests
-     */
+    // Configurable timeout (in minutes)
+    private static final int TEST_TIMEOUT_MINUTES = 15;
+    
     public static boolean runTests(String projectPath) throws Exception {
         File projectDir = new File(projectPath);
-        
-        // Determine whether to use Maven or Gradle
         BuildSystem buildSystem = determineBuildSystem(projectDir);
-        
-        List<String> command = new ArrayList<>();
-        
-        switch (buildSystem) {
-            case MAVEN:
-                command.add(isWindows() ? "mvn.cmd" : "mvn");
-                command.add("test");
-                break;
-            case GRADLE:
-                command.add(isWindows() ? "gradlew.bat" : "./gradlew");
-                command.add("test");
-                break;
-            case UNKNOWN:
-            default:
-                System.out.println("Warning: Could not determine build system. Skipping tests.");
-                return true; // Assume tests pass when we can't run them
-        }
+        List<String> command = buildCommand(buildSystem);
         
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.directory(projectDir);
         pb.redirectErrorStream(true);
         
-        System.out.println("Running tests with " + buildSystem + "...");
+        System.out.println("\n🔄 Starting test execution...");
+        System.out.println("⏳ Timeout set to: " + TEST_TIMEOUT_MINUTES + " minutes");
+        System.out.println("📂 Project root: " + projectDir.getAbsolutePath());
+        
+        long startTime = System.currentTimeMillis();
         Process process = pb.start();
         
-        // Read and print the output
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+        // Start output reader thread
+        Thread outputThread = new Thread(() -> readStream(process.getInputStream()));
+        outputThread.start();
+        
+        boolean completed = process.waitFor(TEST_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+        long durationSeconds = (System.currentTimeMillis() - startTime) / 1000;
+        
+        if (!completed) {
+            System.err.println("\n⛔ Timeout after " + durationSeconds + " seconds!");
+            process.destroyForcibly();
+            throw new RuntimeException("Test execution timed out after " + TEST_TIMEOUT_MINUTES + " minutes");
+        }
+        
+        int exitCode = process.exitValue();
+        System.out.println("[DEBUG] Process exit code: " + exitCode);
+        System.out.println("\n✅ Test execution completed in " + durationSeconds + " seconds");
+        
+        // Always parse test results
+        parseTestResults(projectPath);
+        
+        // If no test reports are found, assume compilation failure
+        if (totalTests == 0) {
+            System.err.println("\n⛔ No test reports found. Likely compilation failure.");
+            return false;
+        }
+        
+        // Print test summary and determine success
+        printTestSummary();
+        boolean allTestsPassed = (failedTests + errorTests) == 0;
+        if (!allTestsPassed) {
+            System.out.println("Some tests failed or had errors.");
+        }
+        
+        return allTestsPassed;
+    }
+
+    private static void readStream(InputStream inputStream) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
             String line;
-            boolean testsFound = false;
-            boolean testsFailed = false;
-            
             while ((line = reader.readLine()) != null) {
-                System.out.println(line);
-                
-                // For Maven
-                if (line.contains("Running ") && line.contains("Test")) {
-                    testsFound = true;
+                System.out.println("[BUILD OUTPUT] " + line);
+                if (line.contains("COMPILATION ERROR") || line.contains("Failed to execute goal") && !line.contains(":test")) {
+                    System.err.println("[ERROR] Compilation issue detected: " + line);
                 }
-                if (line.contains("Tests run:") && line.contains("Failures:")) {
-                    if (line.contains("Failures: 0") && line.contains("Errors: 0")) {
-                        // Tests passed
-                    } else {
-                        testsFailed = true;
+            }
+        } catch (Exception e) {
+            System.err.println("Error reading build output: " + e.getMessage());
+        }
+    }
+
+    private static void parseTestResults(String projectPath) throws Exception {
+        Path reportsDir = Path.of(projectPath, "target", "surefire-reports");
+        totalTests = 0;
+        failedTests = 0;
+        errorTests = 0;
+        skippedTests = 0;
+    
+        if (!Files.exists(reportsDir)) {
+            System.err.println("⚠️ No test reports found at: " + reportsDir);
+            return;
+        }
+    
+        Files.list(reportsDir)
+            .filter(path -> path.toString().endsWith(".xml"))
+            .forEach(path -> {
+                try {
+                    DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+                    DocumentBuilder builder = factory.newDocumentBuilder();
+                    Document doc = builder.parse(path.toFile());
+    
+                    NodeList testCases = doc.getElementsByTagName("testcase");
+                    totalTests += testCases.getLength();
+    
+                    for (int i = 0; i < testCases.getLength(); i++) {
+                        Element testCase = (Element) testCases.item(i);
+                        if (testCase.getElementsByTagName("failure").getLength() > 0) {
+                            failedTests++;
+                        } else if (testCase.getElementsByTagName("error").getLength() > 0) {
+                            errorTests++;
+                        } else if (testCase.getElementsByTagName("skipped").getLength() > 0) {
+                            skippedTests++;
+                        }
                     }
+                } catch (Exception e) {
+                    System.err.println("⚠️ Error parsing test report: " + e.getMessage());
                 }
-                
-                // For Gradle
-                if (line.contains("Test FAILED")) {
-                    testsFailed = true;
-                }
-                if (line.matches(".*\\d+ tests? completed.*")) {
-                    testsFound = true;
-                }
-                
-                // Failure indicators for both
-                if (line.contains("BUILD FAILURE") || line.contains("FAILED")) {
-                    testsFailed = true;
-                }
-            }
-            
-            // Wait for the process to complete with timeout
-            boolean completed = process.waitFor(2, TimeUnit.MINUTES);
-            if (!completed) {
-                process.destroy();
-                throw new RuntimeException("Test execution timed out after 2 minutes");
-            }
-            
-            int exitCode = process.exitValue();
-            
-            if (!testsFound) {
-                System.out.println("Warning: No tests were found or executed.");
-                return true; // Assume tests pass when none are found
-            }
-            
-            boolean testsPassed = exitCode == 0 && !testsFailed;
-            System.out.println("Tests " + (testsPassed ? "PASSED" : "FAILED"));
-            return testsPassed;
-        }
+            });
     }
-    
-    private static BuildSystem determineBuildSystem(File projectDir) {
-        if (new File(projectDir, "pom.xml").exists()) {
-            return BuildSystem.MAVEN;
-        } else if (new File(projectDir, "build.gradle").exists() || new File(projectDir, "build.gradle.kts").exists()) {
-            return BuildSystem.GRADLE;
+
+    private static void printTestSummary() {
+        System.out.println("\n=== TEST SUMMARY ===");
+        System.out.println("✅ Passed: " + (totalTests - failedTests - errorTests - skippedTests));
+        System.out.println("❌ Failed: " + failedTests);
+        System.out.println("⚠️ Errors: " + errorTests);
+        System.out.println("⏩ Skipped: " + skippedTests);
+        System.out.println("Total: " + totalTests + " tests");
+    }
+
+    private static List<String> buildCommand(BuildSystem buildSystem) {
+        List<String> command = new ArrayList<>();
+        if (buildSystem == BuildSystem.MAVEN) {
+            command.add(isWindows() ? "mvn.cmd" : "mvn");
+            command.add("clean");
+            command.add("test");
+        } else if (buildSystem == BuildSystem.GRADLE) {
+            command.add(isWindows() ? "gradlew.bat" : "./gradlew");
+            command.add("test");
         } else {
-            return BuildSystem.UNKNOWN;
+            throw new IllegalStateException("Unsupported build system: " + buildSystem);
         }
+        return command;
     }
-    
+
+    private static BuildSystem determineBuildSystem(File projectDir) {
+        if (new File(projectDir, "pom.xml").exists()) return BuildSystem.MAVEN;
+        if (new File(projectDir, "build.gradle").exists() || 
+            new File(projectDir, "build.gradle.kts").exists()) return BuildSystem.GRADLE;
+        return BuildSystem.UNKNOWN;
+    }
+
     private static boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("win");
     }
-    
+
     private enum BuildSystem {
         MAVEN, GRADLE, UNKNOWN
     }
-} 
+}
