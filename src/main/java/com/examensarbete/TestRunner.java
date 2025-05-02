@@ -21,7 +21,6 @@ public class TestRunner {
     private static int errorTests = 0;
     private static int skippedTests = 0;
     
-    // Configurable timeout (in minutes)
     private static final int TEST_TIMEOUT_MINUTES = 15;
     
     public static boolean runTests(String projectPath) throws Exception {
@@ -40,7 +39,6 @@ public class TestRunner {
         long startTime = System.currentTimeMillis();
         Process process = pb.start();
         
-        // Start output reader thread
         Thread outputThread = new Thread(() -> readStream(process.getInputStream()));
         outputThread.start();
         
@@ -50,30 +48,25 @@ public class TestRunner {
         if (!completed) {
             System.err.println("\n⛔ Timeout after " + durationSeconds + " seconds!");
             process.destroyForcibly();
-            throw new RuntimeException("Test execution timed out after " + TEST_TIMEOUT_MINUTES + " minutes");
+            throw new RuntimeException("Test execution timed out");
         }
         
         int exitCode = process.exitValue();
         System.out.println("[DEBUG] Process exit code: " + exitCode);
         System.out.println("\n✅ Test execution completed in " + durationSeconds + " seconds");
         
-        // Always parse test results
         parseTestResults(projectPath);
         
-        // If no test reports are found, assume compilation failure
-        if (totalTests == 0) {
-            System.err.println("\n⛔ No test reports found. Likely compilation failure.");
+        boolean testsExecuted = Files.walk(Path.of(projectPath, "target", "surefire-reports"))
+            .anyMatch(p -> p.toString().endsWith(".xml"));
+        
+        if (!testsExecuted) {
+            System.err.println("\n⛔ No test reports found. Possible compilation failure.");
             return false;
         }
         
-        // Print test summary and determine success
         printTestSummary();
-        boolean allTestsPassed = (failedTests + errorTests) == 0;
-        if (!allTestsPassed) {
-            System.out.println("Some tests failed or had errors.");
-        }
-        
-        return allTestsPassed;
+        return (failedTests + errorTests) == 0;
     }
 
     private static void readStream(InputStream inputStream) {
@@ -81,8 +74,8 @@ public class TestRunner {
             String line;
             while ((line = reader.readLine()) != null) {
                 System.out.println("[BUILD OUTPUT] " + line);
-                if (line.contains("COMPILATION ERROR") || line.contains("Failed to execute goal") && !line.contains(":test")) {
-                    System.err.println("[ERROR] Compilation issue detected: " + line);
+                if (line.contains("COMPILATION ERROR") || line.contains("Failed to execute goal")) {
+                    System.err.println("[ERROR] Build issue detected: " + line);
                 }
             }
         } catch (Exception e) {
@@ -98,15 +91,16 @@ public class TestRunner {
         skippedTests = 0;
     
         if (!Files.exists(reportsDir)) {
-            System.err.println("⚠️ No test reports found at: " + reportsDir);
+            System.err.println("⚠️ No test reports directory found");
             return;
         }
     
-        Files.list(reportsDir)
+        Files.walk(reportsDir)
             .filter(path -> path.toString().endsWith(".xml"))
             .forEach(path -> {
                 try {
                     DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+                    factory.setNamespaceAware(false);
                     DocumentBuilder builder = factory.newDocumentBuilder();
                     Document doc = builder.parse(path.toFile());
     
@@ -115,6 +109,8 @@ public class TestRunner {
     
                     for (int i = 0; i < testCases.getLength(); i++) {
                         Element testCase = (Element) testCases.item(i);
+                        
+                        // Corrected checks using getLength()
                         if (testCase.getElementsByTagName("failure").getLength() > 0) {
                             failedTests++;
                         } else if (testCase.getElementsByTagName("error").getLength() > 0) {
@@ -124,18 +120,27 @@ public class TestRunner {
                         }
                     }
                 } catch (Exception e) {
-                    System.err.println("⚠️ Error parsing test report: " + e.getMessage());
+                    System.err.println("⚠️ Error parsing " + path + ": " + e.getMessage());
                 }
             });
+        
+        System.out.println("[DEBUG] Parsed results - Total: " + totalTests 
+            + ", Failed: " + failedTests 
+            + ", Errors: " + errorTests 
+            + ", Skipped: " + skippedTests);
     }
 
     private static void printTestSummary() {
         System.out.println("\n=== TEST SUMMARY ===");
-        System.out.println("✅ Passed: " + (totalTests - failedTests - errorTests - skippedTests));
-        System.out.println("❌ Failed: " + failedTests);
-        System.out.println("⚠️ Errors: " + errorTests);
+        System.out.println("✅ Passed:  " + (totalTests - failedTests - errorTests - skippedTests));
+        System.out.println("❌ Failed:  " + failedTests);
+        System.out.println("⚠️ Errors:  " + errorTests);
         System.out.println("⏩ Skipped: " + skippedTests);
-        System.out.println("Total: " + totalTests + " tests");
+        System.out.println("Total:     " + totalTests + " tests");
+        
+        if ((failedTests + errorTests) > 0) {
+            System.out.println("\n❌ Some tests failed or had errors");
+        }
     }
 
     private static List<String> buildCommand(BuildSystem buildSystem) {
@@ -148,7 +153,7 @@ public class TestRunner {
             command.add(isWindows() ? "gradlew.bat" : "./gradlew");
             command.add("test");
         } else {
-            throw new IllegalStateException("Unsupported build system: " + buildSystem);
+            throw new IllegalStateException("Unsupported build system");
         }
         return command;
     }
