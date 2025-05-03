@@ -15,7 +15,7 @@ public class Main implements Callable<Integer> {
     @CommandLine.Option(
     names = {"-m", "--model"}, 
     description = "AI model to use (OpenAI, Claude, DeepSeek)", 
-    required = false // Changed from required=true
+    required = false
 )
     private String model;
 
@@ -50,15 +50,14 @@ public class Main implements Callable<Integer> {
     }
 
     @Override
-public Integer call() throws Exception {
-    // Add validation for commands that need model
-    if (command.equalsIgnoreCase("hitta-buggar") || 
-        command.equalsIgnoreCase("fixa-kod")) {
-        if (model == null) {
-            System.out.println("Error: Model required for this command");
-            return 1;
+    public Integer call() throws Exception {
+        if (command.equalsIgnoreCase("hitta-buggar") || 
+            command.equalsIgnoreCase("fixa-kod")) {
+            if (model == null) {
+                System.out.println("Error: Model required for this command");
+                return 1;
+            }
         }
-    }
         String code = fileReader.readFile(file.getPath());
 
         switch (command.toLowerCase()) {
@@ -83,19 +82,22 @@ public Integer call() throws Exception {
         String response = AIClient.sendRequest(model, prompt);
         AIClient.AIResponse parsedResponse = AIClient.parseResponse(response);
 
-        if (parsedResponse != null) {
-            System.out.println("Buggposition: " + parsedResponse.getBugPosition());
-            System.out.println("Föreslagen korrigering:\n" + parsedResponse.getCorrectedCode());
+        if (parsedResponse != null && !parsedResponse.getBugFixes().isEmpty()) {
+            for (AIClient.AIResponse.BugFix bugFix : parsedResponse.getBugFixes()) {
+                System.out.println("Buggposition: " + bugFix.getBugPosition());
+                System.out.println("Buggtyp: " + bugFix.getBugType());
+                System.out.println("Förklaring: " + bugFix.getExplanation());
 
-            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-            System.out.print("Vill du applicera denna ändring? (y/N): ");
-            String answer = reader.readLine();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+                System.out.print("Vill du applicera denna ändring? (y/N): ");
+                String answer = reader.readLine();
 
-            if (answer.trim().equalsIgnoreCase("y")) {
-                CodePatcher.applyPatch(file.getPath(), parsedResponse.getCorrectedCode(), parsedResponse.getBugPosition(), true);
-                System.out.println("Ändringen har applicerats.");
-            } else {
-                System.out.println("Ändringen har inte applicerats.");
+                if (answer.trim().equalsIgnoreCase("y")) {
+                    CodePatcher.applyPatch(file.getPath(), bugFix.getCorrectedCode(), true);
+                    System.out.println("Ändringen har applicerats.");
+                } else {
+                    System.out.println("Ändringen har inte applicerats.");
+                }
             }
         } else {
             System.out.println("Ingen bugg hittades eller kunde inte extrahera bugginformation.");
@@ -120,33 +122,31 @@ public Integer call() throws Exception {
         System.out.println("\n=== KÖR TESTER INNAN KORRIGERING ===");
         boolean initialTestsPassed = TestRunner.runTests(projectPath);
         
-        // Find and apply fix
+        // Find and apply fixes
         String bugFindingPrompt = promptBuilder.buildBugFindingPrompt(code);
         String bugFindingResponse = AIClient.sendRequest(model, bugFindingPrompt);
         AIClient.AIResponse bugFixResponse = AIClient.parseResponse(bugFindingResponse);
 
-        boolean fixApplied = false;
-        if (bugFixResponse != null) {
-            CodePatcher.applyPatch(file.getPath(), 
-                bugFixResponse.getCorrectedCode(), 
-                bugFixResponse.getBugPosition(), 
-                true
-            );
-            fixApplied = true;
+        if (bugFixResponse != null && !bugFixResponse.getBugFixes().isEmpty()) {
+            for (AIClient.AIResponse.BugFix bugFix : bugFixResponse.getBugFixes()) {
+                CodePatcher.applyPatch(file.getPath(), bugFix.getCorrectedCode(), true);
+            }
             
             // Run post-fix tests
             System.out.println("\n=== KÖR TESTER EFTER KORRIGERING ===");
             boolean finalTestsPassed = TestRunner.runTests(projectPath);
             
-            // Log results
-            resultLogger.logResult(
-                "debug.log",
-                bugFixResponse.getBugPosition(),
-                bugFixResponse.getCorrectedCode(),
-                fixApplied,
-                initialTestsPassed,
-                finalTestsPassed
-            );
+            // Log results for each bug fix
+            for (AIClient.AIResponse.BugFix bugFix : bugFixResponse.getBugFixes()) {
+                resultLogger.logResult(
+                    "debug.log",
+                    bugFix.getBugPosition(),
+                    bugFix.getCorrectedCode(),
+                    true,
+                    initialTestsPassed,
+                    finalTestsPassed
+                );
+            }
             
             System.out.println("\nSAMMANFATTNING:");
             System.out.println("Initiala tester: " + (initialTestsPassed ? "Lyckades" : "Misslyckades"));

@@ -17,11 +17,16 @@ import java.util.regex.Pattern;
 public class AIClient {
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
     private static final Properties API_KEYS = loadApiKeys();
-    private static final Pattern BUG_POSITION_PATTERN = 
-    Pattern.compile("Bug Position:\\s*(\\d+)-(\\d+)", Pattern.CASE_INSENSITIVE);
     
-private static final Pattern CORRECTED_CODE_PATTERN = 
-    Pattern.compile("Corrected Code:\\s*```java\\s*([\\s\\S]*?)```", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // Enhanced regex with flexible whitespace handling
+    private static final Pattern BUG_BLOCK_PATTERN = Pattern.compile(
+        "BUG\\s+LOCATION:\\s*(.+?)\\n" +
+        "BUG\\s+TYPE:\\s*(.+?)\\n" +
+        "EXPLANATION:\\s*([\\s\\S]*?)\\n" +
+        "COMPLETE\\s+FILE:\\s*```java\\s*([\\s\\S]*?)```",
+        Pattern.CASE_INSENSITIVE | Pattern.DOTALL
+    );
+
     private static Properties loadApiKeys() {
         Properties properties = new Properties();
         try (InputStream in = AIClient.class.getClassLoader().getResourceAsStream("api-keys.properties")) {
@@ -66,39 +71,55 @@ private static final Pattern CORRECTED_CODE_PATTERN =
         System.out.println("\n=== PARSING RESPONSE ===");
         String content = extractContentFromApiResponse(response);
         
-        if (content == null || content.isBlank()) {
-            System.out.println("[ERROR] Empty content in response");
+        if (content == null || content.trim().isEmpty()) {
+            System.out.println("[ERROR] Empty or null content in response");
             return null;
         }
 
         System.out.println("[DEBUG] Extracted Content:\n" + content);
+        
+        List<AIResponse.BugFix> bugFixes = new ArrayList<>();
+        Matcher matcher = BUG_BLOCK_PATTERN.matcher(content);
+        int blockCount = 0;
+        
+        while (matcher.find()) {
+            blockCount++;
+            try {
+                String bugPosition = matcher.group(1).trim();
+                String bugType = matcher.group(2).trim();
+                String explanation = matcher.group(3).trim();
+                String correctedCode = matcher.group(4).trim();
 
-        if (content.toLowerCase().contains("no bugs found") || 
-            content.toLowerCase().contains("no issues")) {
-            System.out.println("[INFO] AI reported no bugs found");
-            return null;
+                // Basic validation
+                if (correctedCode.isEmpty()) {
+                    System.err.println("[WARN] Skipping block " + blockCount + ": Empty code snippet detected");
+                    continue;
+                }
+
+                AIResponse.BugFix bugFix = new AIResponse.BugFix(
+                    bugPosition, 
+                    correctedCode,
+                    bugType,
+                    explanation
+                );
+                bugFixes.add(bugFix);
+                
+                System.out.println("[DEBUG] Parsed Bug Fix " + blockCount + ":");
+                System.out.println("- Position: " + bugPosition);
+                System.out.println("- Type: " + bugType);
+                System.out.println("- Explanation: " + explanation);
+                
+            } catch (Exception e) {
+                System.err.println("[ERROR] Failed to parse bug block " + blockCount + ": " + e.getMessage());
+            }
         }
 
-        Matcher posMatcher = BUG_POSITION_PATTERN.matcher(content);
-        Matcher codeMatcher = CORRECTED_CODE_PATTERN.matcher(content);
-
-        boolean hasPosition = posMatcher.find();
-        boolean hasCode = codeMatcher.find();
-
-        System.out.println("[DEBUG] Position match: " + hasPosition);
-        System.out.println("[DEBUG] Code match: " + hasCode);
-
-        if (hasPosition && hasCode) {
-            String bugPosition = posMatcher.group(1) + "-" + posMatcher.group(2);
-            String correctedCode = codeMatcher.group(1).trim();
-            
-            System.out.println("[DEBUG] Parsed Position: " + bugPosition);
-            System.out.println("[DEBUG] Parsed Code:\n" + correctedCode);
-            
-            return new AIResponse(bugPosition, correctedCode);
+        if (!bugFixes.isEmpty()) {
+            System.out.println("[INFO] Successfully parsed " + bugFixes.size() + " bug fixes out of " + blockCount + " blocks");
+            return new AIResponse(bugFixes);
         }
-
-        System.out.println("[ERROR] Failed to parse required elements");
+        
+        System.out.println("[ERROR] Failed to parse any bug fixes from " + blockCount + " potential blocks");
         System.out.println("[DEBUG] Full content for analysis:\n" + content);
         return null;
     }
@@ -134,7 +155,7 @@ private static final Pattern CORRECTED_CODE_PATTERN =
                 return root.get("response").asText();
             }
 
-            System.out.println("[WARN] Unknown response format");
+            System.out.println("[WARN] Unknown response format, returning raw response");
             return response;
             
         } catch (Exception e) {
@@ -173,16 +194,35 @@ private static final Pattern CORRECTED_CODE_PATTERN =
     }
 
     public static class AIResponse {
-        private final String bugPosition;
-        private final String correctedCode;
-
-        public AIResponse(String bugPosition, String correctedCode) {
-            this.bugPosition = bugPosition;
-            this.correctedCode = correctedCode;
+        private final List<BugFix> bugFixes;
+        
+        public AIResponse(List<BugFix> bugFixes) {
+            this.bugFixes = bugFixes;
         }
 
-        public String getBugPosition() { return bugPosition; }
-        public String getCorrectedCode() { return correctedCode; }
+        public List<BugFix> getBugFixes() { 
+            return bugFixes; 
+        }
+
+        public static class BugFix {
+            private final String bugPosition;
+            private final String correctedCode;
+            private final String bugType;
+            private final String explanation;
+            
+            public BugFix(String bugPosition, String correctedCode, 
+                        String bugType, String explanation) {
+                this.bugPosition = bugPosition;
+                this.correctedCode = correctedCode;
+                this.bugType = bugType;
+                this.explanation = explanation;
+            }
+
+            public String getBugPosition() { return bugPosition; }
+            public String getCorrectedCode() { return correctedCode; }
+            public String getBugType() { return bugType; }
+            public String getExplanation() { return explanation; }
+        }
     }
 
     private static class OpenAIRequest {

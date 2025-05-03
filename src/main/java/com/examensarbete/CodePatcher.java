@@ -1,64 +1,75 @@
 package com.examensarbete;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.logging.Logger;
+import java.util.logging.Level;
 
 /**
  * Utility class for applying code fixes to source files.
  */
 public class CodePatcher {
+    private static final Logger LOGGER = Logger.getLogger(CodePatcher.class.getName());
 
     /**
-     * Applies a code patch to the specified file.
+     * Applies a code patch by replacing the entire file content with the corrected version.
      *
      * @param filePath      Path to the file to patch
-     * @param correctedCode The corrected code snippet
-     * @param bugPosition   The position of the bug in the format "startLine-endLine"
+     * @param correctedCode The complete corrected file content
      * @param apply         Whether to apply the fix or not
+     * @return true if the patch was successfully applied, false otherwise
      * @throws Exception If there's an error reading or writing the file
      */
-    public static void applyPatch(String filePath, String correctedCode, String bugPosition, boolean apply) throws Exception {
+    public static boolean applyPatch(String filePath, String correctedCode, boolean apply) throws Exception {
+        LOGGER.setLevel(Level.ALL);
+
         if (!apply) {
+            LOGGER.info("Fix not applied for file: " + filePath);
             System.out.println("Fix not applied.");
-            return;
+            return false;
         }
+
+        LOGGER.info("Attempting to apply patch to: " + filePath);
+        LOGGER.fine("Corrected code to apply:\n" + correctedCode);
 
         Path path = Path.of(filePath);
-        List<String> lines = Files.readAllLines(path);
-
-        // Parse bug position
-        String[] positions = bugPosition.split("-");
-        if (positions.length != 2) {
-            throw new IllegalArgumentException("Invalid bug position format: " + bugPosition);
+        
+        // Create backup of original content
+        String originalContent = Files.readString(path);
+        
+        // Validate the corrected code
+        if (!validatePatch(correctedCode)) {
+            LOGGER.warning("Patch validation failed - not applying changes");
+            return false;
         }
-
-        int startLine = Integer.parseInt(positions[0]);
-        int endLine = Integer.parseInt(positions[1]);
-
-        // Adjust for zero-based indexing
-        startLine = Math.max(1, startLine) - 1;
-        endLine = Math.min(lines.size(), endLine);
-
-        if (startLine < 0 || startLine >= lines.size() || endLine <= startLine || endLine > lines.size()) {
-            throw new IllegalArgumentException("Bug position out of range: " + bugPosition);
-        }
-
-        // Split the corrected code into lines
-        List<String> correctedLines = new ArrayList<>(List.of(correctedCode.split("\n")));
-
-        // Replace the buggy lines with the corrected ones
-        List<String> newFileContent = new ArrayList<>();
-        newFileContent.addAll(lines.subList(0, startLine));
-        newFileContent.addAll(correctedLines);
-        newFileContent.addAll(lines.subList(endLine, lines.size()));
-
-        // Write the updated content back to the file
-        Files.write(path, newFileContent);
-
+        
+        // Apply the changes
+        Files.writeString(path, correctedCode);
+        LOGGER.info("Successfully applied fix to: " + filePath);
         System.out.println("Successfully applied fix to " + filePath);
-        System.out.println("- Replaced lines " + (startLine + 1) + " to " + endLine);
+        return true;
+    }
+    
+    /**
+     * Validates the patched code by checking for basic syntax errors.
+     */
+    private static boolean validatePatch(String patchedCode) {
+        // Basic validation - check for unmatched braces, brackets, etc.
+        int braceCount = 0;
+        int bracketCount = 0;
+        int parenCount = 0;
+        
+        for (char c : patchedCode.toCharArray()) {
+            switch (c) {
+                case '{' -> braceCount++;
+                case '}' -> braceCount--;
+                case '[' -> bracketCount++;
+                case ']' -> bracketCount--;
+                case '(' -> parenCount++;
+                case ')' -> parenCount--;
+            }
+        }
+        
+        return braceCount == 0 && bracketCount == 0 && parenCount == 0;
     }
 }
