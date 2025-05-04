@@ -21,16 +21,12 @@ public class CodePatcher {
      * @throws Exception If there's an error reading or writing the file
      */
     public static boolean applyPatch(String filePath, String correctedCode, boolean apply) throws Exception {
-        LOGGER.setLevel(Level.ALL);
+        LOGGER.setLevel(Level.SEVERE); // Only show severe errors by default
 
         if (!apply) {
-            LOGGER.info("Fix not applied for file: " + filePath);
             System.out.println("Fix not applied.");
             return false;
         }
-
-        LOGGER.info("Attempting to apply patch to: " + filePath);
-        LOGGER.fine("Corrected code to apply:\n" + correctedCode);
 
         Path path = Path.of(filePath);
         
@@ -39,14 +35,13 @@ public class CodePatcher {
         
         // Validate the corrected code
         if (!validatePatch(correctedCode)) {
-            LOGGER.warning("Patch validation failed - not applying changes");
+            System.err.println("❌ Patch validation failed - not applying changes");
             return false;
         }
         
         // Apply the changes
         Files.writeString(path, correctedCode);
-        LOGGER.info("Successfully applied fix to: " + filePath);
-        System.out.println("Successfully applied fix to " + filePath);
+        System.out.println("✅ Successfully applied fix to " + filePath);
         return true;
     }
     

@@ -32,18 +32,19 @@ public class AIClient {
         try (InputStream in = AIClient.class.getClassLoader().getResourceAsStream("api-keys.properties")) {
             if (in != null) {
                 properties.load(in);
-                System.out.println("[DEBUG] Loaded API keys from properties file");
             }
         } catch (IOException e) {
-            System.out.println("[WARN] No api-keys.properties found");
+            // Silent fail - will try environment variables
         }
         return properties;
     }
 
-    public static String sendRequest(String model, String prompt) throws Exception {
-        System.out.println("\n=== SENDING REQUEST ===");
-        System.out.println("[DEBUG] Model: " + model);
-        System.out.println("[DEBUG] Prompt:\n" + prompt);
+    public static String sendRequest(String model, String prompt, boolean verbose) throws Exception {
+        if (verbose) {
+            System.out.println("\n=== SENDING REQUEST ===");
+            System.out.println("[DEBUG] Model: " + model);
+            System.out.println("[DEBUG] Prompt:\n" + prompt);
+        }
 
         String apiKey = getApiKey(model);
         String apiUrl = getApiUrl(model);
@@ -60,23 +61,30 @@ public class AIClient {
 
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         
-        System.out.println("\n=== RAW RESPONSE ===");
-        System.out.println("[DEBUG] Status Code: " + response.statusCode());
-        System.out.println("[DEBUG] Response Body:\n" + response.body());
+        if (verbose) {
+            System.out.println("\n=== RAW RESPONSE ===");
+            System.out.println("[DEBUG] Status Code: " + response.statusCode());
+            System.out.println("[DEBUG] Response Body:\n" + response.body());
+        }
         
         return response.body();
     }
 
-    public static AIResponse parseResponse(String response) throws Exception {
-        System.out.println("\n=== PARSING RESPONSE ===");
-        String content = extractContentFromApiResponse(response);
+    public static AIResponse parseResponse(String response, boolean verbose) throws Exception {
+        if (verbose) {
+            System.out.println("\n=== PARSING RESPONSE ===");
+        }
+        
+        String content = extractContentFromApiResponse(response, verbose);
         
         if (content == null || content.trim().isEmpty()) {
-            System.out.println("[ERROR] Empty or null content in response");
+            System.err.println("[ERROR] Empty or null content in response");
             return null;
         }
 
-        System.out.println("[DEBUG] Extracted Content:\n" + content);
+        if (verbose) {
+            System.out.println("[DEBUG] Extracted Content:\n" + content);
+        }
         
         List<AIResponse.BugFix> bugFixes = new ArrayList<>();
         Matcher matcher = BUG_BLOCK_PATTERN.matcher(content);
@@ -92,7 +100,9 @@ public class AIClient {
 
                 // Basic validation
                 if (correctedCode.isEmpty()) {
-                    System.err.println("[WARN] Skipping block " + blockCount + ": Empty code snippet detected");
+                    if (verbose) {
+                        System.err.println("[WARN] Skipping block " + blockCount + ": Empty code snippet detected");
+                    }
                     continue;
                 }
 
@@ -104,10 +114,12 @@ public class AIClient {
                 );
                 bugFixes.add(bugFix);
                 
-                System.out.println("[DEBUG] Parsed Bug Fix " + blockCount + ":");
-                System.out.println("- Position: " + bugPosition);
-                System.out.println("- Type: " + bugType);
-                System.out.println("- Explanation: " + explanation);
+                if (verbose) {
+                    System.out.println("[DEBUG] Parsed Bug Fix " + blockCount + ":");
+                    System.out.println("- Position: " + bugPosition);
+                    System.out.println("- Type: " + bugType);
+                    System.out.println("- Explanation: " + explanation);
+                }
                 
             } catch (Exception e) {
                 System.err.println("[ERROR] Failed to parse bug block " + blockCount + ": " + e.getMessage());
@@ -115,26 +127,37 @@ public class AIClient {
         }
 
         if (!bugFixes.isEmpty()) {
-            System.out.println("[INFO] Successfully parsed " + bugFixes.size() + " bug fixes out of " + blockCount + " blocks");
+            if (verbose) {
+                System.out.println("[INFO] Successfully parsed " + bugFixes.size() + " bug fixes out of " + blockCount + " blocks");
+            }
             return new AIResponse(bugFixes);
         }
         
-        System.out.println("[ERROR] Failed to parse any bug fixes from " + blockCount + " potential blocks");
-        System.out.println("[DEBUG] Full content for analysis:\n" + content);
+        if (verbose) {
+            System.out.println("[ERROR] Failed to parse any bug fixes from " + blockCount + " potential blocks");
+            System.out.println("[DEBUG] Full content for analysis:\n" + content);
+        }
         return null;
     }
 
-    private static String extractContentFromApiResponse(String response) throws Exception {
-        System.out.println("\n=== EXTRACTING CONTENT ===");
+    private static String extractContentFromApiResponse(String response, boolean verbose) throws Exception {
+        if (verbose) {
+            System.out.println("\n=== EXTRACTING CONTENT ===");
+        }
+        
         try {
             JsonNode root = JSON_MAPPER.readTree(response);
-            System.out.println("[DEBUG] JSON Structure:\n" + root.toPrettyString());
+            if (verbose) {
+                System.out.println("[DEBUG] JSON Structure:\n" + root.toPrettyString());
+            }
 
             if (root.has("choices")) {
                 JsonNode choice = root.get("choices").get(0);
                 if (choice.has("message") && choice.get("message").has("content")) {
                     String content = choice.get("message").get("content").asText();
-                    System.out.println("[DEBUG] Extracted OpenAI content");
+                    if (verbose) {
+                        System.out.println("[DEBUG] Extracted OpenAI content");
+                    }
                     return content;
                 }
             }
@@ -146,21 +169,29 @@ public class AIClient {
                         contentBuilder.append(item.get("text").asText());
                     }
                 }
-                System.out.println("[DEBUG] Extracted Anthropic content");
+                if (verbose) {
+                    System.out.println("[DEBUG] Extracted Anthropic content");
+                }
                 return contentBuilder.toString();
             }
 
             if (root.has("response")) {
-                System.out.println("[DEBUG] Extracted DeepSeek content");
+                if (verbose) {
+                    System.out.println("[DEBUG] Extracted DeepSeek content");
+                }
                 return root.get("response").asText();
             }
 
-            System.out.println("[WARN] Unknown response format, returning raw response");
+            if (verbose) {
+                System.out.println("[WARN] Unknown response format, returning raw response");
+            }
             return response;
             
         } catch (Exception e) {
-            System.out.println("[ERROR] Failed to parse JSON: " + e.getMessage());
-            System.out.println("[DEBUG] Raw response:\n" + response);
+            System.err.println("[ERROR] Failed to parse JSON: " + e.getMessage());
+            if (verbose) {
+                System.out.println("[DEBUG] Raw response:\n" + response);
+            }
             return response;
         }
     }

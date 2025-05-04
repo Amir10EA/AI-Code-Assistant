@@ -70,6 +70,22 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <argLine>
+                        --add-opens=java.base/java.lang=ALL-UNNAMED
+                        --add-opens=java.base/java.util=ALL-UNNAMED
+                        --add-opens=java.base/sun.misc=ALL-UNNAMED
+                        -Dfile.encoding=UTF-8
+                        -Dorg.slf4j.simpleLogger.defaultLogLevel=error
+                    </argLine>
+                    <trimStackTrace>false</trimStackTrace>
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

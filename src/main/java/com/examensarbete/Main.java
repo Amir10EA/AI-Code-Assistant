@@ -25,6 +25,9 @@ public class Main implements Callable<Integer> {
     @CommandLine.Option(names = {"-c", "--command"}, description = "Command to execute (hitta-buggar, kor-test, fixa-kod)", required = true)
     private String command;
 
+    @CommandLine.Option(names = {"-v", "--verbose"}, description = "Enable verbose output", defaultValue = "false")
+    private boolean verbose;
+
     private final FileReader fileReader = new FileReader();
     private final PromptBuilder promptBuilder = new PromptBuilder();
     private final CodePatcher codePatcher = new CodePatcher();
@@ -79,8 +82,8 @@ public class Main implements Callable<Integer> {
 
     private void findBugs(String code) throws Exception {
         String prompt = promptBuilder.buildBugFindingPrompt(code);
-        String response = AIClient.sendRequest(model, prompt);
-        AIClient.AIResponse parsedResponse = AIClient.parseResponse(response);
+        String response = AIClient.sendRequest(model, prompt, verbose);
+        AIClient.AIResponse parsedResponse = AIClient.parseResponse(response, verbose);
 
         if (parsedResponse != null && !parsedResponse.getBugFixes().isEmpty()) {
             for (AIClient.AIResponse.BugFix bugFix : parsedResponse.getBugFixes()) {
@@ -107,7 +110,7 @@ public class Main implements Callable<Integer> {
     private void runTests() throws Exception {
         String projectPath = getProjectRoot();
         try {
-            boolean testsPassed = TestRunner.runTests(projectPath);
+            boolean testsPassed = TestRunner.runTests(projectPath, verbose);
             System.out.println("Testresultat: " + (testsPassed ? "ALLT GRÖNT ✅" : "MISSLYCKADES ❌"));
         } catch (RuntimeException e) {
             System.err.println("[ERROR] Test execution failed: " + e.getMessage());
@@ -120,12 +123,12 @@ public class Main implements Callable<Integer> {
         
         // Run initial tests
         System.out.println("\n=== KÖR TESTER INNAN KORRIGERING ===");
-        boolean initialTestsPassed = TestRunner.runTests(projectPath);
+        boolean initialTestsPassed = TestRunner.runTests(projectPath, verbose);
         
         // Find and apply fixes
         String bugFindingPrompt = promptBuilder.buildBugFindingPrompt(code);
-        String bugFindingResponse = AIClient.sendRequest(model, bugFindingPrompt);
-        AIClient.AIResponse bugFixResponse = AIClient.parseResponse(bugFindingResponse);
+        String bugFindingResponse = AIClient.sendRequest(model, bugFindingPrompt, verbose);
+        AIClient.AIResponse bugFixResponse = AIClient.parseResponse(bugFindingResponse, verbose);
 
         if (bugFixResponse != null && !bugFixResponse.getBugFixes().isEmpty()) {
             for (AIClient.AIResponse.BugFix bugFix : bugFixResponse.getBugFixes()) {
@@ -134,7 +137,7 @@ public class Main implements Callable<Integer> {
             
             // Run post-fix tests
             System.out.println("\n=== KÖR TESTER EFTER KORRIGERING ===");
-            boolean finalTestsPassed = TestRunner.runTests(projectPath);
+            boolean finalTestsPassed = TestRunner.runTests(projectPath, verbose);
             
             // Log results for each bug fix
             for (AIClient.AIResponse.BugFix bugFix : bugFixResponse.getBugFixes()) {

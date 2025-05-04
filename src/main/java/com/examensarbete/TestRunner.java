@@ -23,7 +23,7 @@ public class TestRunner {
     
     private static final int TEST_TIMEOUT_MINUTES = 15;
     
-    public static boolean runTests(String projectPath) throws Exception {
+    public static boolean runTests(String projectPath, boolean verbose) throws Exception {
         File projectDir = new File(projectPath);
         BuildSystem buildSystem = determineBuildSystem(projectDir);
         List<String> command = buildCommand(buildSystem);
@@ -33,13 +33,15 @@ public class TestRunner {
         pb.redirectErrorStream(true);
         
         System.out.println("\n🔄 Starting test execution...");
-        System.out.println("⏳ Timeout set to: " + TEST_TIMEOUT_MINUTES + " minutes");
-        System.out.println("📂 Project root: " + projectDir.getAbsolutePath());
+        if (verbose) {
+            System.out.println("⏳ Timeout set to: " + TEST_TIMEOUT_MINUTES + " minutes");
+            System.out.println("📂 Project root: " + projectDir.getAbsolutePath());
+        }
         
         long startTime = System.currentTimeMillis();
         Process process = pb.start();
         
-        Thread outputThread = new Thread(() -> readStream(process.getInputStream()));
+        Thread outputThread = new Thread(() -> readStream(process.getInputStream(), verbose));
         outputThread.start();
         
         boolean completed = process.waitFor(TEST_TIMEOUT_MINUTES, TimeUnit.MINUTES);
@@ -52,7 +54,9 @@ public class TestRunner {
         }
         
         int exitCode = process.exitValue();
-        System.out.println("[DEBUG] Process exit code: " + exitCode);
+        if (verbose) {
+            System.out.println("[DEBUG] Process exit code: " + exitCode);
+        }
         System.out.println("\n✅ Test execution completed in " + durationSeconds + " seconds");
         
         parseTestResults(projectPath);
@@ -69,12 +73,17 @@ public class TestRunner {
         return (failedTests + errorTests) == 0;
     }
 
-    private static void readStream(InputStream inputStream) {
+    private static void readStream(InputStream inputStream, boolean verbose) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                System.out.println("[BUILD OUTPUT] " + line);
-                if (line.contains("COMPILATION ERROR") || line.contains("Failed to execute goal")) {
+                if (verbose) {
+                    System.out.println("[BUILD OUTPUT] " + line);
+                }
+                if (line.contains("COMPILATION ERROR") || 
+                    (line.contains("Failed to execute goal") && 
+                     !line.contains("maven-surefire-plugin") && 
+                     !line.contains("test failures"))) {
                     System.err.println("[ERROR] Build issue detected: " + line);
                 }
             }
@@ -110,7 +119,6 @@ public class TestRunner {
                     for (int i = 0; i < testCases.getLength(); i++) {
                         Element testCase = (Element) testCases.item(i);
                         
-                        // Corrected checks using getLength()
                         if (testCase.getElementsByTagName("failure").getLength() > 0) {
                             failedTests++;
                         } else if (testCase.getElementsByTagName("error").getLength() > 0) {
@@ -123,23 +131,21 @@ public class TestRunner {
                     System.err.println("⚠️ Error parsing " + path + ": " + e.getMessage());
                 }
             });
-        
-        System.out.println("[DEBUG] Parsed results - Total: " + totalTests 
-            + ", Failed: " + failedTests 
-            + ", Errors: " + errorTests 
-            + ", Skipped: " + skippedTests);
     }
 
     private static void printTestSummary() {
         System.out.println("\n=== TEST SUMMARY ===");
-        System.out.println("✅ Passed:  " + (totalTests - failedTests - errorTests - skippedTests));
+        int passedTests = totalTests - failedTests - errorTests - skippedTests;
+        System.out.println("✅ Passed:  " + passedTests);
         System.out.println("❌ Failed:  " + failedTests);
         System.out.println("⚠️ Errors:  " + errorTests);
         System.out.println("⏩ Skipped: " + skippedTests);
         System.out.println("Total:     " + totalTests + " tests");
         
         if ((failedTests + errorTests) > 0) {
-            System.out.println("\n❌ Some tests failed or had errors");
+            System.out.println("\n❌ Some tests failed");
+        } else {
+            System.out.println("\n✅ All tests passed");
         }
     }
 
@@ -149,9 +155,11 @@ public class TestRunner {
             command.add(isWindows() ? "mvn.cmd" : "mvn");
             command.add("clean");
             command.add("test");
+            command.add("-q"); // Quiet mode
         } else if (buildSystem == BuildSystem.GRADLE) {
             command.add(isWindows() ? "gradlew.bat" : "./gradlew");
             command.add("test");
+            command.add("--quiet");
         } else {
             throw new IllegalStateException("Unsupported build system");
         }
