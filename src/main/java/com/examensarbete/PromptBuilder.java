@@ -23,38 +23,83 @@ public class PromptBuilder {
         - Maintain existing indentation
         - Consider test failure patterns
         - Return the complete file with all fixes applied""";
-
+    
     /**
-     * Builds a general bug finding prompt
+     * Builds a general bug finding prompt with embedded line numbers.
      */
-    public String buildBugFindingPrompt(String fileContent) {
-        return String.format("""
-            %s
+    public String buildBugFindingPrompt(String code) {
+        // Split the code into lines and add line numbers
+        String[] lines = code.split("\n");
+        StringBuilder numberedCode = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            numberedCode.append(String.format("%3d | %s\n", i + 1, lines[i]));
+        }
+
+        return """
+            Analyze the following Java code and identify any bugs or issues. For each bug found, provide:
             
-            CODE TO ANALYZE:
+            LINE COUNTING RULES:
+            1. The code is provided with line numbers in the format "  N | code", where N is the line number starting from 1.
+            2. When reporting BUG LOCATION, use the line number shown before the pipe (|).
+            3. Each bug must be reported with its exact starting line number as shown.
+            4. Include line numbers in ORIGINAL CODE and CORRECTED CODE snippets.
+            
+            For each bug found, provide:
+            1. BUG LOCATION: <filename>:<exact line number as shown>
+            2. BUG TYPE: <type of bug>
+            3. EXPLANATION: <detailed explanation of the bug>
+            4. ORIGINAL CODE: <the problematic code snippet with line numbers>
+            5. CORRECTED CODE: <the fixed version with line numbers>
+            
+            Format your response using the following template for each bug:
+            
+            BUG LOCATION: <filename>:<exact line number>
+            BUG TYPE: <type of bug>
+            EXPLANATION: <detailed explanation>
+            
+            ORIGINAL CODE:
             ```java
-            %s
+            <original code snippet with line numbers>
             ```
             
-            COMMON TEST FAILURE PATTERNS TO CONSIDER:
-            1. Unexpected null values
-            2. Incorrect calculations/formulas
-            3. Mismatched field/method names
-            4. Off-by-one errors
-            5. Incorrect conditional logic
-            6. Type conversion issues
+            CORRECTED CODE:
+            ```java
+            <corrected code snippet with line numbers>
+            ```
             
-            REQUIRED RESPONSE FORMAT:
-            ``` 
-            BUG LOCATION: [filename]:[start line]-[end line]
-            BUG TYPE: [Logical Error | Calculation Error | Field Mismatch | ...]
-            EXPLANATION: [Clear technical reason]
+            After identifying all bugs, provide the COMPLETE FILE with all fixes applied, WITHOUT line numbers:
+            
             COMPLETE FILE:
             ```java
-            [ENTIRE FILE WITH ALL FIXES APPLIED]
+            <entire file with all fixes applied, without line numbers>
             ```
+            
+            IMPORTANT RULES:
+            1. Preserve ALL Javadoc comments exactly as they are
+            2. Keep the original code structure and formatting
+            3. Only modify the specific buggy code sections
+            4. Maintain all imports and package declarations
+            5. Keep all class and method signatures unchanged except for the bug fixes
+            6. NEVER use ranges or group related bugs together
+            7. IMPORTANT: Line numbers must be exactly as shown before the pipe. Do not estimate or calculate them.
+            
+            EXAMPLE:
+            If the code is:
             ```
-            """, SYSTEM_PROMPT, fileContent);
+             1 | public class Example {
+             2 |     public void method() {
+             3 |         System.out.println("Hello");
+             4 |     }
+             5 | }
+            ```
+            And there’s a bug at line 3, report it as:
+            BUG LOCATION: Example.java:3
+            
+            Code to analyze:
+            ```
+            %s
+            ```
+            """.formatted(numberedCode.toString());
     }
 
     /**

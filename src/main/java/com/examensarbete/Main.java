@@ -86,24 +86,26 @@ public class Main implements Callable<Integer> {
         AIClient.AIResponse parsedResponse = AIClient.parseResponse(response, verbose);
 
         if (parsedResponse != null && !parsedResponse.getBugFixes().isEmpty()) {
-            for (AIClient.AIResponse.BugFix bugFix : parsedResponse.getBugFixes()) {
-                System.out.println("Buggposition: " + bugFix.getBugPosition());
-                System.out.println("Buggtyp: " + bugFix.getBugType());
-                System.out.println("Förklaring: " + bugFix.getExplanation());
+            parsedResponse.printBugSummary();
 
-                BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-                System.out.print("Vill du applicera denna ändring? (y/N): ");
-                String answer = reader.readLine();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+            System.out.print("\n💭 Vill du applicera dessa ändringar? (y/N): ");
+            String answer = reader.readLine();
 
-                if (answer.trim().equalsIgnoreCase("y")) {
-                    CodePatcher.applyPatch(file.getPath(), bugFix.getCorrectedCode(), true);
-                    System.out.println("Ändringen har applicerats.");
+            if (answer.trim().equalsIgnoreCase("y")) {
+                String completeFile = parsedResponse.getCompleteFile();
+                if (completeFile != null && !completeFile.isEmpty()) {
+                    // Write the complete file directly
+                    Files.writeString(file.toPath(), completeFile);
+                    System.out.println("✅ Ändringarna har applicerats.");
                 } else {
-                    System.out.println("Ändringen har inte applicerats.");
+                    System.out.println("❌ Kunde inte hitta den kompletta filen med ändringar.");
                 }
+            } else {
+                System.out.println("❌ Ändringarna har inte applicerats.");
             }
         } else {
-            System.out.println("Ingen bugg hittades eller kunde inte extrahera bugginformation.");
+            System.out.println("❌ Ingen bugg hittades eller kunde inte extrahera bugginformation.");
         }
     }
 

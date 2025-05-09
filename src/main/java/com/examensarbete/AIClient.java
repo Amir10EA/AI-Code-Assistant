@@ -23,7 +23,8 @@ public class AIClient {
         "BUG\\s+LOCATION:\\s*(.+?)\\n" +
         "BUG\\s+TYPE:\\s*(.+?)\\n" +
         "EXPLANATION:\\s*([\\s\\S]*?)\\n" +
-        "COMPLETE\\s+FILE:\\s*```java\\s*([\\s\\S]*?)```",
+        "ORIGINAL\\s+CODE:\\s*```java\\s*([\\s\\S]*?)```\\s*\\n" +
+        "CORRECTED\\s+CODE:\\s*```java\\s*([\\s\\S]*?)```",
         Pattern.CASE_INSENSITIVE | Pattern.DOTALL
     );
 
@@ -96,10 +97,11 @@ public class AIClient {
                 String bugPosition = matcher.group(1).trim();
                 String bugType = matcher.group(2).trim();
                 String explanation = matcher.group(3).trim();
-                String correctedCode = matcher.group(4).trim();
+                String originalCode = matcher.group(4).trim();
+                String correctedCode = matcher.group(5).trim();
 
                 // Basic validation
-                if (correctedCode.isEmpty()) {
+                if (correctedCode.isEmpty() || originalCode.isEmpty()) {
                     if (verbose) {
                         System.err.println("[WARN] Skipping block " + blockCount + ": Empty code snippet detected");
                     }
@@ -110,7 +112,8 @@ public class AIClient {
                     bugPosition, 
                     correctedCode,
                     bugType,
-                    explanation
+                    explanation,
+                    originalCode
                 );
                 bugFixes.add(bugFix);
                 
@@ -126,11 +129,22 @@ public class AIClient {
             }
         }
 
+        // Extract complete file
+        String completeFile = null;
+        Pattern completeFilePattern = Pattern.compile(
+            "COMPLETE\\s+FILE:\\s*```java\\s*([\\s\\S]*?)```",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL
+        );
+        Matcher completeFileMatcher = completeFilePattern.matcher(content);
+        if (completeFileMatcher.find()) {
+            completeFile = completeFileMatcher.group(1).trim();
+        }
+
         if (!bugFixes.isEmpty()) {
             if (verbose) {
                 System.out.println("[INFO] Successfully parsed " + bugFixes.size() + " bug fixes out of " + blockCount + " blocks");
             }
-            return new AIResponse(bugFixes);
+            return new AIResponse(bugFixes, completeFile);
         }
         
         if (verbose) {
@@ -226,13 +240,68 @@ public class AIClient {
 
     public static class AIResponse {
         private final List<BugFix> bugFixes;
+        private final String completeFile;
         
-        public AIResponse(List<BugFix> bugFixes) {
+        public AIResponse(List<BugFix> bugFixes, String completeFile) {
             this.bugFixes = bugFixes;
+            this.completeFile = completeFile;
         }
 
         public List<BugFix> getBugFixes() { 
             return bugFixes; 
+        }
+
+        public String getCompleteFile() {
+            return completeFile;
+        }
+
+        public void printBugSummary() {
+            // First, collect all bug locations
+            StringBuilder locations = new StringBuilder("Bug locations: ");
+            for (int i = 0; i < bugFixes.size(); i++) {
+                BugFix bugFix = bugFixes.get(i);
+                String[] positionParts = bugFix.getBugPosition().split(":");
+                if (positionParts.length >= 2) {
+                    String lineNumbers = positionParts[1].trim();
+                    // Remove any file name that might have been included in the line numbers
+                    lineNumbers = lineNumbers.replaceAll("\\s*,\\s*[^0-9-]+", "");
+                    locations.append(lineNumbers);
+                    if (i < bugFixes.size() - 1) {
+                        locations.append(", ");
+                    }
+                }
+            }
+            System.out.println("\n" + locations.toString());
+            
+            // Then show each bug's details
+            System.out.println("\nBug Details:");
+            for (BugFix bugFix : bugFixes) {
+                String[] positionParts = bugFix.getBugPosition().split(":");
+                if (positionParts.length >= 2) {
+                    String fileName = positionParts[0].trim();
+                    String lineNumbers = positionParts[1].trim();
+                    // Clean up the line numbers
+                    lineNumbers = lineNumbers.replaceAll("\\s*,\\s*[^0-9-]+", "");
+                    System.out.println("Location: " + fileName + ":" + lineNumbers);
+                    System.out.println("Type: " + bugFix.getBugType());
+                    System.out.println("Explanation: " + bugFix.getExplanation());
+                    System.out.println();
+                }
+            }
+            
+            // Show the proposed changes
+            System.out.println("Proposed Changes:");
+            String fileName = bugFixes.get(0).getBugPosition().split(":")[0].trim();
+            System.out.println("file: " + fileName);
+            System.out.println("<<<<<<< SEARCH");
+            for (BugFix bugFix : bugFixes) {
+                System.out.println(bugFix.getOriginalCode());
+            }
+            System.out.println("=======");
+            for (BugFix bugFix : bugFixes) {
+                System.out.println(bugFix.getCorrectedCode());
+            }
+            System.out.println(">>>>>>> REPLACE");
         }
 
         public static class BugFix {
@@ -240,19 +309,22 @@ public class AIClient {
             private final String correctedCode;
             private final String bugType;
             private final String explanation;
+            private final String originalCode;
             
             public BugFix(String bugPosition, String correctedCode, 
-                        String bugType, String explanation) {
+                        String bugType, String explanation, String originalCode) {
                 this.bugPosition = bugPosition;
                 this.correctedCode = correctedCode;
                 this.bugType = bugType;
                 this.explanation = explanation;
+                this.originalCode = originalCode;
             }
 
             public String getBugPosition() { return bugPosition; }
             public String getCorrectedCode() { return correctedCode; }
             public String getBugType() { return bugType; }
             public String getExplanation() { return explanation; }
+            public String getOriginalCode() { return originalCode; }
         }
     }
 
