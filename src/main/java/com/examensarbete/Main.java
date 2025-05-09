@@ -123,39 +123,48 @@ public class Main implements Callable<Integer> {
     private void fixCode(String code) throws Exception {
         String projectPath = getProjectRoot();
         
-        // Run initial tests
+        // Run initial tests exactly like kör-test
         System.out.println("\n=== KÖR TESTER INNAN KORRIGERING ===");
         boolean initialTestsPassed = TestRunner.runTests(projectPath, verbose);
         
-        // Find and apply fixes
+        // Find bugs using hitta-bug logic
         String bugFindingPrompt = promptBuilder.buildBugFindingPrompt(code);
         String bugFindingResponse = AIClient.sendRequest(model, bugFindingPrompt, verbose);
         AIClient.AIResponse bugFixResponse = AIClient.parseResponse(bugFindingResponse, verbose);
-
+    
         if (bugFixResponse != null && !bugFixResponse.getBugFixes().isEmpty()) {
-            for (AIClient.AIResponse.BugFix bugFix : bugFixResponse.getBugFixes()) {
-                CodePatcher.applyPatch(file.getPath(), bugFix.getCorrectedCode(), true);
+            // Print bug summary identical to hitta-bug
+            bugFixResponse.printBugSummary();
+            
+            // Automatically apply fixes using complete file, unlike hitta-bug's prompt
+            System.out.println("\nApplying changes automatically...");
+            String completeFile = bugFixResponse.getCompleteFile();
+            if (completeFile != null && !completeFile.isEmpty()) {
+                CodePatcher.applyPatch(file.getPath(), completeFile, true);
+                
+                // Run post-fix tests for final report
+                System.out.println("\n=== KÖR TESTER EFTER KORRIGERING ===");
+                boolean finalTestsPassed = TestRunner.runTests(projectPath, verbose);
+                
+                // Log results for each bug fix
+                for (AIClient.AIResponse.BugFix bugFix : bugFixResponse.getBugFixes()) {
+                    resultLogger.logResult(
+                        "debug.log",
+                        bugFix.getBugPosition(),
+                        bugFix.getCorrectedCode(),
+                        true,
+                        initialTestsPassed,
+                        finalTestsPassed
+                    );
+                }
+                
+                // Print summary
+                System.out.println("\nSAMMANFATTNING:");
+                System.out.println("Initiala tester: " + (initialTestsPassed ? "Lyckades" : "Misslyckades"));
+                System.out.println("Tester efter fix: " + (finalTestsPassed ? "Lyckades" : "Misslyckades"));
+            } else {
+                System.out.println("❌ Kunde inte hitta den kompletta filen med ändringar.");
             }
-            
-            // Run post-fix tests
-            System.out.println("\n=== KÖR TESTER EFTER KORRIGERING ===");
-            boolean finalTestsPassed = TestRunner.runTests(projectPath, verbose);
-            
-            // Log results for each bug fix
-            for (AIClient.AIResponse.BugFix bugFix : bugFixResponse.getBugFixes()) {
-                resultLogger.logResult(
-                    "debug.log",
-                    bugFix.getBugPosition(),
-                    bugFix.getCorrectedCode(),
-                    true,
-                    initialTestsPassed,
-                    finalTestsPassed
-                );
-            }
-            
-            System.out.println("\nSAMMANFATTNING:");
-            System.out.println("Initiala tester: " + (initialTestsPassed ? "Lyckades" : "Misslyckades"));
-            System.out.println("Tester efter fix: " + (finalTestsPassed ? "Lyckades" : "Misslyckades"));
         } else {
             System.out.println("Ingen bugg hittades - ingen åtgärd vidtogs.");
         }

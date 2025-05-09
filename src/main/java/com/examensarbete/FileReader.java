@@ -26,4 +26,4 @@ public class FileReader {
         }
         return Files.readString(path);
     }
-} 
+}
