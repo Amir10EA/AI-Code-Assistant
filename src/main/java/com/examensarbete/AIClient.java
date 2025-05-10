@@ -56,7 +56,9 @@ public class AIClient {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrl))
                 .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
+                .header(model.toLowerCase().equals("claude") ? "x-api-key" : "Authorization", 
+                       model.toLowerCase().equals("claude") ? apiKey : "Bearer " + apiKey)
+                .header("anthropic-version", "2023-06-01")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
 
@@ -347,7 +349,7 @@ public class AIClient {
     }
 
     private static class ClaudeRequest {
-        public String model = "claude-3-opus-20240229";
+        public String model = "claude-3-7-sonnet-20250219";
         public int max_tokens = 4000;
         public List<Message> messages;
 
