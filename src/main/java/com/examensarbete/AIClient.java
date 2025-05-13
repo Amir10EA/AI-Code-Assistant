@@ -350,7 +350,7 @@ public class AIClient {
 
     private static class ClaudeRequest {
         public String model = "claude-3-7-sonnet-20250219";
-        public int max_tokens = 4000;
+        public int max_tokens = 8192;
         public List<Message> messages;
 
         public ClaudeRequest(String prompt) {
@@ -374,8 +374,8 @@ public class AIClient {
     }
 
     private static class DeepSeekRequest {
-        public String model = "deepseek-r1";
-        public int max_tokens = 16000;
+        public String model = "deepseek-reasoner";
+        public int max_tokens = 8192;
         public List<Message> messages;
 
         public DeepSeekRequest(String prompt) {
