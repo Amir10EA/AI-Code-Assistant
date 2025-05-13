@@ -331,7 +331,7 @@ public class AIClient {
     }
 
     private static class OpenAIRequest {
-        public String model = "gpt-4";
+        public String model = "gpt-4.1";
         public List<Message> messages;
 
         public OpenAIRequest(String prompt) {
@@ -374,7 +374,8 @@ public class AIClient {
     }
 
     private static class DeepSeekRequest {
-        public String model = "deepseek-coder";
+        public String model = "deepseek-r1";
+        public int max_tokens = 16000;
         public List<Message> messages;
 
         public DeepSeekRequest(String prompt) {
