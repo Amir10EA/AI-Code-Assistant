@@ -6,9 +6,9 @@ A command-line tool that leverages AI models (OpenAI, Claude, DeepSeek) to detec
 
 - Detects bugs in Java source files using AI models
 - Suggests code fixes for identified bugs
-- Asks for confirmation before applying changes
+- Optionally applies fixes automatically
+- Runs tests before and after applying changes
 - Backs up original files
-- Validates fixes by running JUnit tests
 - Logs results for future reference
 
 ## Setup
@@ -35,13 +35,13 @@ There are two ways to provide API keys:
 #### 1. Properties File (Recommended)
 
 1. Go to `src/main/resources/`
-2. Copy `api-keys.properties.template` to `api-keys.properties`
+2. Copy `api-keys.properties.template` to `api-keys.properties` (remove the `.template` extension)
 3. Edit `api-keys.properties` and fill in your API keys:
 
 ```properties
-OPENAI_API_KEY=your_openai_api_key_here
-CLAUDE_API_KEY=your_claude_api_key_here
-DEEPSEEK_API_KEY=your_deepseek_api_key_here
+OPENAI_API_KEY=your_openai_api_key
+CLAUDE_API_KEY=your_claude_api_key
+DEEPSEEK_API_KEY=your_deepseek_api_key
 ```
 
 The `api-keys.properties` file is included in `.gitignore` so your keys won't be pushed to version control.
@@ -68,33 +68,60 @@ The tool will first check the properties file, then fall back to environment var
 Run the assistant with the following command:
 
 ```bash
-java -jar target/assistant-1.0-SNAPSHOT-jar-with-dependencies.jar --model OpenAI --file path/to/BuggyClass.java --prompt "Fix the bugs in this file"
+java -jar target/assistant-1.0-SNAPSHOT-jar-with-dependencies.jar -m OpenAI -f path/to/BuggyClass.java -c command
 ```
 
 ### Command Line Options
 
-- `--model` or `-m`: AI model to use (OpenAI, Claude, DeepSeek)
-- `--file` or `-f`: Path to the buggy Java file
-- `--prompt` or `-p`: User-defined prompt for the AI
+- `-m` or `--model`: AI model to use (OpenAI, Claude, DeepSeek)
+- `-f` or `--file`: Path to the buggy Java file
+- `-c` or `--command`: Command to run (see below)
 
-### Example
+### Available Commands
+
+- `kor-test`: Run tests on the Java file to check if there are failing tests
+- `hitta-buggar`: Find bugs in the Java file and display detailed information about them with proposed fixes
+- `fixa-kod`: Find bugs, automatically apply fixes, and run tests to verify the changes
+
+### Examples
 
 ```bash
-java -jar target/assistant-1.0-SNAPSHOT-jar-with-dependencies.jar --model OpenAI --file src/main/java/com/example/BuggyClass.java --prompt "Find and fix any logical errors in this code"
+# Run tests on a Java file
+java -jar target/assistant-1.0-SNAPSHOT-jar-with-dependencies.jar -m OpenAI -f path/to/BuggyClass.java -c kor-test
+
+# Find bugs in a Java file
+java -jar target/assistant-1.0-SNAPSHOT-jar-with-dependencies.jar -m OpenAI -f path/to/BuggyClass.java -c hitta-buggar
+
+# Fix bugs in a Java file
+java -jar target/assistant-1.0-SNAPSHOT-jar-with-dependencies.jar -m OpenAI -f path/to/BuggyClass.java -c fixa-kod
 ```
 
 ## Workflow
 
+### When using `hitta-buggar`:
 1. The tool reads the content of the specified Java file
-2. It sends the file content along with your prompt to the AI model
+2. It sends the file content to the AI model
 3. The AI analyzes the code and identifies bugs
-4. The tool displays the bug locations and suggested fixes
+4. The tool displays the bug locations, details, and suggested fixes
 5. You can choose whether to apply the fixes
-6. If applied, the tool runs JUnit tests to validate the changes
-7. Results are logged to a file for future reference
+
+### When using `fixa-kod`:
+1. The tool runs tests to check the current state of the code
+2. It identifies bugs using AI
+3. It automatically applies the suggested fixes
+4. It runs tests again to verify that the fixes resolved the issues
+5. Results are logged to a file for future reference
 
 ## Notes
 
-- The original file is backed up before applying any changes
-- The tool defaults to using Maven for running tests but also supports Gradle
-- If no tests are found, the fix is considered successful 
+- The tool provides output in Swedish
+- Bug details include line numbers, type of bug, and explanations
+- Proposed changes show side-by-side comparisons of the original and fixed code
+- Results are logged to debug.log 
+
+## Video Demonstration
+
+Below is a video demonstrating how the tool works:
+
+![Video Demo](assets/AI%20assistant%20interaction.mp4)
+
